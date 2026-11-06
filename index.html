@@ -1,0 +1,1051 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="MangaTap">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<title>MangaTap</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; width: 100%; height: 100%;
+    background: #000; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    overflow: hidden; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
+  body { position: fixed; inset: 0; display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+  /* 상단 바 */
+  #bar {
+    flex: 0 0 auto; z-index: 30;
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    padding: 6px 10px; background: #161616; border-bottom: 1px solid #2a2a2a;
+  }
+  #bar.hidden { display: none; }
+  #bar button {
+    border: 0; border-radius: 9px; padding: 9px 11px; min-width: 0;
+    font-size: 13px; font-weight: 600; color: #fff; background: #2b2b2b;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  #bar button.on { background: #fff; color: #111; }
+  #add { color: #111 !important; background: #fff !important; }
+
+  /* 만화 화면 */
+  #stage {
+    flex: 1; min-height: 0; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    background: #000; overflow: hidden;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    touch-action: pan-y; overscroll-behavior-x: none;
+  }
+  #page {
+    display: block; max-width: 100%; max-height: 100%;
+    width: auto; height: auto; object-fit: contain;
+    -webkit-user-drag: none; pointer-events: none;
+  }
+  .zone {
+    position: absolute; top: 0; bottom: 0;
+    border: 0; background: transparent; padding: 0; margin: 0;
+    touch-action: manipulation;
+  }
+  #left   { left: 0;   width: 40%; }
+  #center { left: 40%; width: 20%; }
+  #right  { right: 0;  width: 40%; }
+
+  #empty {
+    position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    display: flex; align-items: center; justify-content: center;
+    padding: 28px; text-align: center; color: #aaa; line-height: 1.8; font-size: 14px;
+  }
+  #empty[hidden], #page[hidden] { display: none; }
+
+  /* 패널 공통 */
+  .panel {
+    position: fixed; left: 0; right: 0; bottom: 0; top: 0; z-index: 20;
+    padding-top: var(--barh, 56px);
+    display: none; flex-direction: column;
+  }
+  .panel.open { display: flex; }
+
+  /* 페이지 목록 */
+  #pagePanel { background: rgba(0,0,0,.97); }
+  #pagePanel h3 { margin: 0; padding: 14px 16px 8px; font-size: 14px; font-weight: 500; color: #aaa; }
+  .scroll {
+    flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: 4px 12px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  }
+  #grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; align-content: start; }
+  #grid button {
+    border: 0; border-radius: 10px; padding: 14px 0;
+    font-size: 15px; font-weight: 600; color: #fff; background: #252525;
+    font-variant-numeric: tabular-nums;
+  }
+  #grid button.cur { background: #fff; color: #111; }
+
+  /* 작품 목록: 한 줄 3개, 화면에는 2줄씩 보이고 스크롤 */
+  #workPanel { background: rgba(0,0,0,.6); }
+  #sheet {
+    flex: none; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: #121212; border-bottom: 1px solid #2a2a2a; padding: 12px;
+    overscroll-behavior: contain;
+  }
+  #workGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .card { position: relative; min-width: 0; }
+  .card .cover {
+    display: block; width: 100%; padding: 0; margin: 0; border: 2px solid transparent;
+    border-radius: 10px; overflow: hidden; background: #222; aspect-ratio: 5 / 7;
+    position: relative; height: auto;
+  }
+  .card.cur .cover { border-color: #fff; }
+  .card .cover img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; max-width: none; max-height: none; display: block; object-fit: cover; object-position: top center; pointer-events: none; }
+  .card .meta { height: 38px; padding: 4px 2px 0; font-size: 12px; line-height: 1.35; overflow: hidden; }
+  .card .nm { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .pg { color: #999; font-variant-numeric: tabular-nums; }
+  .mini {
+    position: absolute; top: 5px; width: 28px; height: 28px; border: 0; border-radius: 14px; padding: 0;
+    font-size: 13px; color: #fff; background: rgba(0,0,0,.6);
+  }
+  .mini.ren { left: 5px; }
+  .mini.del { right: 5px; }
+  #noWorks { grid-column: 1 / -1; padding: 28px 0; text-align: center; color: #888; font-size: 14px; }
+
+  /* 작품 순서 바꾸기 (꾹 눌러서 끌기) */
+  #workGrid .card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  .card.dragging { z-index: 50; opacity: .93; transition: none !important; filter: drop-shadow(0 10px 16px rgba(0,0,0,.65)); }
+  #workGrid.sorting .card:not(.dragging) { opacity: .8; }
+
+  /* 그룹(폴더) */
+  .card .cover.folder { background: #2a2a30; padding: 6px; }
+  .fgrid { position: absolute; inset: 6px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; }
+  .fgrid .tile { position: relative; min-width: 0; min-height: 0; border-radius: 5px; overflow: hidden; background: #3a3a42; }
+  .fgrid .tile img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+  .card .cover { transition: transform .15s ease, outline-color .15s ease; outline: 3px solid transparent; }
+  .card.merge .cover { outline-color: #4da3ff; transform: scale(1.06); }
+  #gHead {
+    position: sticky; top: 0; z-index: 3; margin: -12px -12px 8px; padding: 0 12px; height: 52px;
+    display: flex; align-items: center; gap: 8px; background: #121212; border-bottom: 1px solid #2a2a2a;
+  }
+  #gHead[hidden] { display: none; }
+  #gHead.drop { background: #1d3a5f; }
+  #gHead button { border: 0; border-radius: 9px; padding: 8px 11px; font-size: 13px; font-weight: 600; color: #fff; background: #2b2b2b; white-space: nowrap; }
+  #gName { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* 그룹을 열 때: 누른 폴더 자리에서 커지며 열리는 효과 */
+  @keyframes folderOpen { from { transform: scale(.78); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  #sheet.opening { animation: folderOpen .24s ease-out; }
+
+  /* 불러오기 메뉴 / 폴더 선택 목록 */
+  #modal { position: fixed; inset: 0; z-index: 45; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.72); padding: 16px; }
+  #modal.open { display: flex; }
+  #modalBox { width: min(100%, 420px); max-height: 82vh; max-height: 82dvh; background: #1a1a1a; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+  #modalBox h3 { margin: 0; font-size: 16px; }
+  #modalBox .sub { margin: 0; font-size: 12px; color: #9a9a9a; line-height: 1.5; }
+  .mbtn { border: 0; border-radius: 12px; padding: 14px; text-align: left; font-size: 15px; font-weight: 600; color: #fff; background: #2b2b2b; }
+  .mbtn small { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; color: #aaa; line-height: 1.45; }
+  .mbtn.primary { background: #fff; color: #111; }
+  .mbtn.primary small { color: #555; }
+  .mlist { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 6px; }
+  .mrow { display: flex; align-items: center; gap: 10px; background: #252525; border-radius: 10px; padding: 11px 12px; font-size: 14px; }
+  .mrow input { width: 20px; height: 20px; flex: none; }
+  .mrow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mrow .ct { color: #999; font-size: 12px; flex: none; font-variant-numeric: tabular-nums; }
+  .mrow .tag { color: #f0b040; font-size: 11px; flex: none; }
+  .mfoot { display: flex; gap: 8px; }
+  .mfoot button { flex: 1; border: 0; border-radius: 12px; padding: 13px 8px; font-size: 14px; font-weight: 600; color: #fff; background: #2b2b2b; }
+  .mfoot button.primary { background: #fff; color: #111; flex: 1.6; }
+  .mfoot button:disabled { opacity: .4; }
+  #toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 28px); transform: translateX(-50%); z-index: 60; background: rgba(45,45,45,.96); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw; text-align: center; }
+  #toast.show { opacity: 1; }
+  #busyText { white-space: pre-line; padding: 0 24px; }
+
+  /* 저장 중 표시 */
+  #busy {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    align-items: center; justify-content: center; text-align: center;
+    background: rgba(0,0,0,.8); font-size: 15px; line-height: 1.8;
+  }
+  #busy.open { display: flex; }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <button id="pages" type="button">☰ 0 / 0</button>
+  <button id="works" type="button">작품 0</button>
+  <button id="add" type="button">＋ 불러오기</button>
+  <input id="files" type="file" accept="image/*,.webp,.jpg,.jpeg,.png" multiple>
+  <input id="dirs" type="file" webkitdirectory multiple>
+</div>
+
+<main id="stage" aria-label="만화 페이지">
+  <div id="empty">위의 <b>불러오기</b>를 눌러<br>만화 이미지들을 선택해 주세요.<br><small>불러온 작품은 앱을 닫아도 폰에 저장되어 남아 있습니다.<br>파일명 숫자 순서대로 정렬됩니다.<br>화면 가운데를 탭하면 위쪽 바를 숨기거나 보일 수 있어요.</small></div>
+  <img id="page" alt="만화 페이지" hidden>
+  <button class="zone" id="left"   aria-label="다음 페이지"></button>
+  <button class="zone" id="center" aria-label="상단 바 숨김/표시"></button>
+  <button class="zone" id="right"  aria-label="이전 페이지"></button>
+</main>
+
+<div class="panel" id="pagePanel">
+  <h3>이동할 페이지를 선택하세요</h3>
+  <div class="scroll"><div id="grid"></div></div>
+</div>
+
+<div class="panel" id="workPanel">
+  <div id="sheet">
+    <div id="gHead" hidden><button id="gBack" type="button">‹ 목록</button><span id="gName"></span><button id="gRen" type="button">✎</button><button id="gUn" type="button">그룹 해제</button></div>
+    <div id="workGrid"></div>
+  </div>
+</div>
+
+<div id="modal"><div id="modalBox"></div></div>
+<div id="toast"></div>
+<div id="busy"><div id="busyText">저장 중…</div></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const picker = $('files'), img = $('page'), empty = $('empty'), bar = $('bar');
+  const pagesBtn = $('pages'), worksBtn = $('works'), addBtn = $('add');
+  const pagePanel = $('pagePanel'), workPanel = $('workPanel');
+  const grid = $('grid'), workGrid = $('workGrid'), sheet = $('sheet');
+  const busy = $('busy'), busyText = $('busyText');
+  const gHead = $('gHead'), gName = $('gName');
+
+  /* ---------- 저장소 (IndexedDB, 실패 시 메모리) ---------- */
+  let db = null;
+  const mem = { works: new Map(), pages: new Map() };
+
+  function openDB() {
+    return new Promise(res => {
+      if (!window.indexedDB) return res(null);
+      try {
+        const r = indexedDB.open('mangatap', 1);
+        r.onupgradeneeded = () => {
+          r.result.createObjectStore('works', { keyPath: 'id' });
+          r.result.createObjectStore('pages');
+        };
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => res(null);
+        r.onblocked = () => res(null);
+      } catch (e) { res(null); }
+    });
+  }
+  const reqP = r => new Promise((ok, no) => { r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
+  const txDone = tx => new Promise((ok, no) => {
+    tx.oncomplete = () => ok();
+    tx.onerror = () => no(tx.error);
+    tx.onabort = () => no(tx.error || new Error('abort'));
+  });
+
+  const store = {
+    async listWorks() {
+      if (!db) return [...mem.works.values()];
+      return reqP(db.transaction('works').objectStore('works').getAll());
+    },
+    async getWork(id) {
+      if (!db) return mem.works.get(id) || null;
+      return (await reqP(db.transaction('works').objectStore('works').get(id))) || null;
+    },
+    async putWork(w) {
+      if (!db) { mem.works.set(w.id, w); return; }
+      const tx = db.transaction('works', 'readwrite');
+      tx.objectStore('works').put(w);
+      return txDone(tx);
+    },
+    async savePages(id, files, onProgress) {
+      if (!db) { mem.pages.set(id, files); onProgress(files.length); return; }
+      const CHUNK = 10;
+      for (let i = 0; i < files.length; i += CHUNK) {
+        const tx = db.transaction('pages', 'readwrite');
+        const os = tx.objectStore('pages');
+        files.slice(i, i + CHUNK).forEach((f, k) => os.put(f, [id, i + k]));
+        await txDone(tx);
+        onProgress(Math.min(i + CHUNK, files.length));
+      }
+    },
+    async getPage(id, n) {
+      if (!db) return (mem.pages.get(id) || [])[n] || null;
+      return (await reqP(db.transaction('pages').objectStore('pages').get([id, n]))) || null;
+    },
+    async deleteWork(id) {
+      if (!db) { mem.works.delete(id); mem.pages.delete(id); return; }
+      const tx = db.transaction(['works', 'pages'], 'readwrite');
+      tx.objectStore('works').delete(id);
+      tx.objectStore('pages').delete(IDBKeyRange.bound([id, 0], [id, Infinity]));
+      return txDone(tx);
+    }
+  };
+
+  const ls = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+
+  /* ---------- 상태 ---------- */
+  let works = [];          // { id, name, index, count, order, cover, groupId }
+  let groups = [];         // { id, type:'group', name, order }
+  let view = null;         // 지금 열어 둔 그룹 id (null이면 최상위 목록)
+  let cur = -1;
+  let currentUrl = null;
+  let showToken = 0;
+  let saveTimer = null;
+  let coverUrls = [];
+  let sortedAt = 0;   // 순서 바꾸기 직후 탭이 작품 열기로 오인되지 않도록
+  const W = () => works[cur];
+
+  const naturalCompare = (a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+
+  function setBarHeightVar() {
+    document.documentElement.style.setProperty('--barh', Math.ceil(bar.getBoundingClientRect().bottom) + 'px');
+  }
+  function closePanels() {
+    pagePanel.classList.remove('open');
+    workPanel.classList.remove('open');
+    coverUrls.forEach(u => URL.revokeObjectURL(u)); coverUrls = [];
+    updateButtons();
+  }
+  function updateButtons() {
+    const w = W();
+    pagesBtn.textContent = `☰ ${w ? w.index + 1 : 0} / ${w ? w.count : 0}`;
+    worksBtn.textContent = works.length ? `작품 ${cur + 1}/${works.length}` : '작품 0';
+    pagesBtn.classList.toggle('on', pagePanel.classList.contains('open'));
+    worksBtn.classList.toggle('on', workPanel.classList.contains('open'));
+  }
+
+  function saveSoon() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      const w = W(); if (!w) return;
+      store.putWork(w).catch(() => {});
+      ls.set('mangatap_cur', w.id);
+    }, 400);
+  }
+
+  async function showPage() {
+    const t = ++showToken;
+    const w = W();
+    if (!w) {
+      img.hidden = true; empty.hidden = false;
+      if (currentUrl) { URL.revokeObjectURL(currentUrl); currentUrl = null; }
+      updateButtons(); return;
+    }
+    updateButtons();
+    let blob = null;
+    try { blob = await store.getPage(w.id, w.index); } catch (e) {}
+    if (t !== showToken) return;
+    if (!blob) {
+      img.hidden = true; empty.hidden = false;
+      empty.textContent = '이 페이지의 이미지를 찾을 수 없습니다. 작품을 닫고 다시 불러와 주세요.';
+      return;
+    }
+    if (currentUrl) URL.revokeObjectURL(currentUrl);
+    currentUrl = URL.createObjectURL(blob);
+    img.src = currentUrl;
+    img.hidden = false; empty.hidden = true;
+    saveSoon();
+  }
+  function next() { const w = W(); if (w && w.index < w.count - 1) { w.index++; showPage(); } }
+  function previous() { const w = W(); if (w && w.index > 0) { w.index--; showPage(); } }
+
+  /* ---------- 페이지 목록 ---------- */
+  function openPages() {
+    const w = W(); if (!w) return;
+    bar.classList.remove('hidden'); setBarHeightVar();
+    workPanel.classList.remove('open');
+    grid.innerHTML = '';
+    for (let i = 0; i < w.count; i++) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = i + 1;
+      if (i === w.index) b.className = 'cur';
+      b.addEventListener('click', () => { w.index = i; showPage(); closePanels(); });
+      grid.appendChild(b);
+    }
+    pagePanel.classList.add('open'); updateButtons();
+    const c = grid.querySelector('.cur'); if (c) c.scrollIntoView({ block: 'center' });
+  }
+
+  /* ---------- 그룹(폴더) 데이터 도우미 ---------- */
+  const isGroup = o => !!o && o.type === 'group';
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  function members(gid) { return works.filter(w => w.groupId === gid).sort((a, b) => a.order - b.order); }
+  function topItems() {
+    const items = groups.slice();
+    works.forEach(w => { if (!w.groupId) items.push(w); });
+    return items.sort((a, b) => a.order - b.order);
+  }
+  function flatWorks() {
+    const out = [];
+    topItems().forEach(it => { if (isGroup(it)) out.push(...members(it.id)); else out.push(it); });
+    return out;
+  }
+  function resortWorks() {
+    const id = W() ? W().id : null;
+    works = flatWorks();
+    cur = id ? works.findIndex(w => w.id === id) : -1;
+  }
+  function topRenumber() { topItems().forEach((it, i) => { it.order = i; }); }
+  function renumber() {
+    // 기본 이름("작품 N", "그룹 N")만 보이는 순서대로 번호를 다시 붙임. 직접 지은 이름은 그대로.
+    flatWorks().forEach((w, i) => { if (/^작품 \d+$/.test(w.name)) w.name = `작품 ${i + 1}`; });
+    groups.slice().sort((a, b) => a.order - b.order)
+      .forEach((g, i) => { if (/^그룹 \d+$/.test(g.name)) g.name = `그룹 ${i + 1}`; });
+  }
+  function persistAll() { return Promise.all([...works, ...groups].map(o => store.putWork(o))).catch(() => {}); }
+  function cleanupGroups() {
+    groups = groups.filter(g => {
+      if (works.some(w => w.groupId === g.id)) return true;
+      store.deleteWork(g.id).catch(() => {});
+      return false;
+    });
+    if (view && !groups.some(g => g.id === view)) view = null;
+  }
+  function restructure() { cleanupGroups(); topRenumber(); renumber(); resortWorks(); persistAll(); updateButtons(); }
+  function nextGroupName() {
+    const used = new Set(groups.map(g => g.name)); let n = 1;
+    while (used.has(`그룹 ${n}`)) n++;
+    return `그룹 ${n}`;
+  }
+  function mergeInto(dragId, targetId) {
+    const d = works.find(w => w.id === dragId);
+    if (!d) return;
+    const tg = groups.find(g => g.id === targetId);
+    if (tg) {
+      const m = members(tg.id);
+      d.groupId = tg.id; d.order = m.length ? m[m.length - 1].order + 1 : 0;
+    } else {
+      const t = works.find(w => w.id === targetId);
+      if (!t || t === d) return;
+      const g = { id: newId(), type: 'group', name: nextGroupName(), order: t.order };
+      groups.push(g);
+      t.groupId = g.id; t.order = 0;
+      d.groupId = g.id; d.order = 1;
+    }
+    restructure();
+  }
+  function dissolveGroup(g) {
+    members(g.id).forEach((m, k) => { m.groupId = null; m.order = g.order + (k + 1) * 0.001; });
+    groups = groups.filter(x => x !== g);
+    store.deleteWork(g.id).catch(() => {});
+    if (view === g.id) view = null;
+    restructure();
+  }
+
+  /* ---------- 작품 목록 (표지 3열, 그룹 지원) ---------- */
+  function sizeSheet() {
+    const cw = (sheet.clientWidth - 24 - 16) / 3;
+    const rowH = cw * 7 / 5 + 38;
+    const head = view ? 48 : 0;
+    sheet.style.maxHeight = Math.round(rowH * 2 + 8 + 24 + 4 + head) + 'px';
+  }
+  function attachCover(im, w) {
+    const useFirstPage = async () => {
+      try {
+        const b = await store.getPage(w.id, 0);
+        if (!b) return;
+        const u = URL.createObjectURL(b); coverUrls.push(u);
+        im.onerror = null; im.src = u;
+        makeThumb(b).then(t => { if (t) { w.cover = t; store.putWork(w).catch(() => {}); } });
+      } catch (e) {}
+    };
+    if (w.cover) {
+      const u = URL.createObjectURL(w.cover); coverUrls.push(u);
+      im.onerror = useFirstPage; im.src = u;
+    } else { useFirstPage(); }
+  }
+  function miniBtn(cls, text, fn) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'mini ' + cls; b.textContent = text;
+    b.addEventListener('click', fn);
+    return b;
+  }
+  function makeMeta(name, sub) {
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = name;
+    const pg = document.createElement('span'); pg.className = 'pg'; pg.textContent = sub;
+    meta.append(nm, pg);
+    return meta;
+  }
+  function makeWorkCard(w, curW) {
+    const card = document.createElement('div');
+    card.className = 'card' + (curW && curW.id === w.id ? ' cur' : '');
+    card.dataset.id = w.id;
+    const cover = document.createElement('button');
+    cover.type = 'button'; cover.className = 'cover';
+    const im = document.createElement('img'); im.alt = w.name; cover.appendChild(im);
+    attachCover(im, w);
+    cover.addEventListener('click', () => {
+      if (Date.now() - sortedAt < 500) return;
+      cur = works.indexOf(w); showPage(); closePanels(); ls.set('mangatap_cur', w.id);
+    });
+    const ren = miniBtn('ren', '✎', () => {
+      const n = prompt('작품 이름', w.name);
+      if (n && n.trim()) { w.name = n.trim(); store.putWork(w).catch(() => {}); openWorks(true); }
+    });
+    const del = miniBtn('del', '✕', async () => {
+      if (!confirm(`'${w.name}'을(를) 앱 목록에서 삭제할까요?\n(앱 안의 복사본만 지워지고, 폰의 사진/파일 앱에 있는 원본 이미지는 그대로 남습니다.)`)) return;
+      try { await store.deleteWork(w.id); } catch (e) {}
+      const wasCur = W() && W().id === w.id;
+      const idx = works.indexOf(w);
+      works.splice(idx, 1);
+      if (!works.length) cur = -1;
+      else if (idx < cur) cur--;
+      else if (wasCur) cur = Math.min(cur, works.length - 1);
+      cleanupGroups();
+      if (cur >= 0) ls.set('mangatap_cur', W().id);
+      showPage();
+      openWorks(true);
+    });
+    card.append(cover, ren, del, makeMeta(w.name, `${w.index + 1} / ${w.count}`));
+    return card;
+  }
+  function makeGroupCard(g, curW) {
+    const mem = members(g.id);
+    const card = document.createElement('div');
+    card.className = 'card group' + (curW && curW.groupId === g.id ? ' cur' : '');
+    card.dataset.id = g.id;
+    const cover = document.createElement('button');
+    cover.type = 'button'; cover.className = 'cover folder';
+    const fg = document.createElement('div'); fg.className = 'fgrid';
+    for (let k = 0; k < 4; k++) {
+      const t = document.createElement('div'); t.className = 'tile';
+      if (mem[k]) { const im = document.createElement('img'); im.alt = ''; attachCover(im, mem[k]); t.appendChild(im); }
+      fg.appendChild(t);
+    }
+    cover.appendChild(fg);
+    cover.addEventListener('click', () => {
+      if (Date.now() - sortedAt < 500) return;
+      const r = card.getBoundingClientRect(), sr = sheet.getBoundingClientRect();
+      const ox = Math.round(r.left + r.width / 2 - sr.left), oy = Math.round(r.top + r.height / 2 - sr.top);
+      openWorks(false, g.id);
+      sheet.style.transformOrigin = `${ox}px ${oy}px`;
+      sheet.classList.remove('opening'); void sheet.offsetWidth; sheet.classList.add('opening');
+    });
+    const ren = miniBtn('ren', '✎', () => {
+      const n = prompt('그룹 이름', g.name);
+      if (n && n.trim()) { g.name = n.trim(); store.putWork(g).catch(() => {}); openWorks(true); }
+    });
+    const del = miniBtn('del', '✕', () => {
+      if (!confirm(`'${g.name}' 그룹을 해제할까요?\n(안의 작품은 삭제되지 않고 목록으로 나옵니다.)`)) return;
+      dissolveGroup(g);
+      openWorks(true);
+    });
+    card.append(cover, ren, del, makeMeta(g.name, `작품 ${mem.length}개`));
+    return card;
+  }
+  function openWorks(keepScroll, forceView) {
+    bar.classList.remove('hidden'); setBarHeightVar();
+    pagePanel.classList.remove('open');
+    if (forceView !== undefined) view = forceView;
+    else if (!keepScroll) view = (W() && W().groupId) ? W().groupId : null;   // 보던 작품이 그룹 안에 있으면 그 그룹을 바로 열기
+    if (view && !groups.some(g => g.id === view)) view = null;
+    coverUrls.forEach(u => URL.revokeObjectURL(u)); coverUrls = [];
+    workGrid.innerHTML = '';
+    const g = view ? groups.find(x => x.id === view) : null;
+    gHead.hidden = !g;
+    if (g) gName.textContent = g.name;
+    const list = g ? members(g.id) : topItems();
+    if (!list.length) {
+      const d = document.createElement('div'); d.id = 'noWorks';
+      d.textContent = g ? '이 그룹에 작품이 없습니다.' : '불러온 작품이 없습니다.';
+      workGrid.appendChild(d);
+    }
+    const curW = W();
+    list.forEach(o => workGrid.appendChild(isGroup(o) ? makeGroupCard(o, curW) : makeWorkCard(o, curW)));
+    workPanel.classList.add('open'); updateButtons();
+    sizeSheet();
+    if (!keepScroll) {                       // 보던 작품(또는 그 작품이 든 그룹)이 보이도록 스크롤
+      const c = workGrid.querySelector('.card.cur');
+      if (c) {
+        const off = g ? 60 : 12;
+        sheet.scrollTop = Math.max(0, sheet.scrollTop + c.getBoundingClientRect().top - sheet.getBoundingClientRect().top - off);
+      } else { sheet.scrollTop = 0; }
+    }
+  }
+  $('gBack').addEventListener('click', () => openWorks(false, null));
+  $('gRen').addEventListener('click', () => {
+    const g = groups.find(x => x.id === view); if (!g) return;
+    const n = prompt('그룹 이름', g.name);
+    if (n && n.trim()) { g.name = n.trim(); store.putWork(g).catch(() => {}); gName.textContent = g.name; }
+  });
+  $('gUn').addEventListener('click', () => {
+    const g = groups.find(x => x.id === view); if (!g) return;
+    if (!confirm(`'${g.name}' 그룹을 해제할까요?\n(안의 작품은 삭제되지 않고 목록으로 나옵니다.)`)) return;
+    dissolveGroup(g);
+    openWorks(false, null);
+  });
+  workPanel.addEventListener('click', e => { if (e.target === workPanel) closePanels(); });
+
+  pagesBtn.addEventListener('click', () => pagePanel.classList.contains('open') ? closePanels() : openPages());
+  worksBtn.addEventListener('click', () => workPanel.classList.contains('open') ? closePanels() : openWorks());
+  addBtn.addEventListener('click', openAddMenu);
+  window.addEventListener('resize', () => { setBarHeightVar(); if (workPanel.classList.contains('open')) sizeSheet(); });
+
+  /* ---------- 불러오기 ---------- */
+  function canvasToBlob(c) {
+    return new Promise(r => {
+      try { c.toBlob(b => r(b), 'image/jpeg', 0.78); } catch (e) { r(null); }
+    }).then(b => {
+      if (b && b.size > 0) return b;
+      try {
+        const bin = atob(c.toDataURL('image/jpeg', 0.78).split(',')[1]);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return new Blob([arr], { type: 'image/jpeg' });
+      } catch (e) { return null; }
+    });
+  }
+  async function makeThumb(file) {
+    const TW = 320;
+    try {
+      const bmp = await createImageBitmap(file);
+      const h = Math.max(1, Math.round(bmp.height * (TW / bmp.width)));
+      const c = document.createElement('canvas'); c.width = TW; c.height = h;
+      c.getContext('2d').drawImage(bmp, 0, 0, TW, h);
+      if (bmp.close) bmp.close();
+      const t = await canvasToBlob(c); if (t) return t;
+    } catch (e) {}
+    try {
+      const url = URL.createObjectURL(file);
+      const im = new Image(); im.src = url; await im.decode();
+      const h = Math.max(1, Math.round(im.naturalHeight * (TW / im.naturalWidth)));
+      const c = document.createElement('canvas'); c.width = TW; c.height = h;
+      c.getContext('2d').drawImage(im, 0, 0, TW, h);
+      URL.revokeObjectURL(url);
+      const t = await canvasToBlob(c); if (t) return t;
+    } catch (e) {}
+    return null;   // 표지 실패 → 목록에서 첫 페이지로 대신 표시
+  }
+  // iOS가 파일 형식(MIME)을 비워 주는 경우가 있어서, 확장자로 형식을 명시해 둠 (webp 등)
+  function typed(f) {
+    if (f.type && f.type.startsWith('image/')) return f;
+    const ext = (f.name.split('.').pop() || '').toLowerCase();
+    const map = { webp: 'image/webp', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', bmp: 'image/bmp', avif: 'image/avif' };
+    return new Blob([f], { type: map[ext] || 'image/webp' });
+  }
+  function nextName() {
+    const used = new Set(works.map(w => w.name));
+    let n = 1;
+    while (used.has(`작품 ${n}`)) n++;
+    return `작품 ${n}`;
+  }
+
+  /* ---------- 폴더로 불러오기 (폴더 1개 = 작품 1개) ---------- */
+  const dirPicker = $('dirs'), modal = $('modal'), modalBox = $('modalBox'), toastEl = $('toast');
+  let toastTimer = null;
+  function toast(msg) {
+    toastEl.textContent = msg; toastEl.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('show'), 3000);
+  }
+  function openModal(build) { modalBox.innerHTML = ''; build(modalBox); modal.classList.add('open'); }
+  function closeModal() { modal.classList.remove('open'); modalBox.innerHTML = ''; }
+  modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function mbtn(title, sub, cls, fn) {
+    const b = el('button', 'mbtn' + (cls ? ' ' + cls : ''), title); b.type = 'button';
+    if (sub) b.appendChild(el('small', '', sub));
+    b.addEventListener('click', fn);
+    return b;
+  }
+
+  const isImage = f => !f.name.startsWith('.') && (f.type.startsWith('image/') || /\.(webp|jpe?g|png|gif|bmp|avif)$/i.test(f.name));
+  const relOf = f => f.webkitRelativePath || f.name;
+  const relCompare = (a, b) => relOf(a).localeCompare(relOf(b), undefined, { numeric: true, sensitivity: 'base' });
+
+  // 고른 폴더 안의 사진들을 "폴더별 작품"으로 나눔
+  //  - 고른 폴더 안에 사진이 바로 있으면: 그 폴더 = 작품 1개
+  //  - 고른 폴더 안에 하위 폴더들이 있으면: 하위 폴더 하나하나 = 작품 1개
+  function groupByFolder(files) {
+    const map = new Map(); let nested = false;
+    files.forEach(f => {
+      const parts = (f.webkitRelativePath || '').split('/').filter(Boolean);
+      if (parts.length < 2) return;
+      if (parts.some(x => x.startsWith('.') || x === '__MACOSX')) return;
+      const dirs = parts.slice(0, -1);
+      let key, name;
+      if (dirs.length >= 2) { nested = true; key = dirs[0] + '/' + dirs[1]; name = dirs[1]; }
+      else { key = dirs[0]; name = dirs[0]; }
+      if (!map.has(key)) map.set(key, { name, files: [] });
+      map.get(key).files.push(f);
+    });
+    const list = Array.from(map.values());
+    list.forEach(g => g.files.sort(relCompare));
+    list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    return { list, nested };
+  }
+
+  async function importOne(name, rawFiles, onProgress, order) {
+    const files = rawFiles.map(typed);
+    const id = newId();
+    try {
+      const cover = await makeThumb(files[0]);
+      await store.savePages(id, files, onProgress);
+      const w = { id, name, index: 0, count: files.length, order, cover };
+      await store.putWork(w);
+      let saved = null;
+      try { saved = await store.getWork(id); } catch (e) {}
+      return saved || w;
+    } catch (e) {
+      try { await store.deleteWork(id); } catch (_) {}
+      throw e;
+    }
+  }
+
+  async function importBatch(items) {          // items: [{ name, files }]
+    if (!items.length) return;
+    closePanels(); closeModal();
+    busy.classList.add('open');
+    const base = Date.now(), done = [];
+    let failed = 0;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const label = items.length > 1 ? `(${i + 1}/${items.length}) ` : '';
+      const show = n => { busyText.textContent = `저장 중… ${label}\n${it.name}\n${n} / ${it.files.length}`; };
+      show(0);
+      try {
+        const w = await importOne(it.name, it.files, show, base + i);
+        works.push(w); done.push(w);
+      } catch (e) { failed++; }
+    }
+    if (done.length) {
+      cur = works.indexOf(done[0]);
+      ls.set('mangatap_cur', done[0].id);
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+      showPage();
+    }
+    busy.classList.remove('open');
+    if (failed) alert(`${failed}개 작품은 저장하지 못했습니다. 폰의 저장 공간이 부족할 수 있어요.\n작품 수나 이미지 수를 줄여서 다시 시도해 주세요.`);
+    if (done.length) toast(`${done.length}개 작품을 불러왔습니다`);
+  }
+
+  function openAddMenu() {
+    openModal(box => {
+      box.appendChild(el('h3', '', '작품 불러오기'));
+      box.appendChild(mbtn('📁 폴더로 불러오기',
+        '폴더 안의 사진이 작품 1개가 됩니다. 폴더를 여러 개 고르면 한 번에 여러 작품이 불러와져요. (iOS 18.4 이상)',
+        'primary', () => { closeModal(); dirPicker.click(); }));
+      box.appendChild(mbtn('🖼 사진 직접 선택', '고른 사진 전체가 작품 1개가 됩니다.', '', () => { closeModal(); picker.click(); }));
+      const foot = el('div', 'mfoot');
+      const c = el('button', '', '취소'); c.type = 'button'; c.addEventListener('click', closeModal);
+      foot.appendChild(c); box.appendChild(foot);
+    });
+  }
+
+  function openChecklist(list) {
+    const exists = n => works.some(w => w.name === n);
+    const sel = list.map(g => !exists(g.name));          // 이미 같은 이름이 있으면 처음엔 선택 안 함
+    openModal(box => {
+      box.appendChild(el('h3', '', `불러올 작품 선택 (${list.length}개 발견)`));
+      box.appendChild(el('p', 'sub', '이미 같은 이름의 작품이 있으면 처음에는 선택되어 있지 않아요.'));
+      const listEl = el('div', 'mlist');
+      const go = el('button', 'primary'); go.type = 'button';
+      const all = el('button', '', '전체 선택'); all.type = 'button';
+      const refresh = () => {
+        const n = sel.filter(Boolean).length;
+        go.textContent = `불러오기 (${n}개)`; go.disabled = n === 0;
+        all.textContent = n === list.length ? '전체 해제' : '전체 선택';
+      };
+      list.forEach((g, i) => {
+        const row = el('label', 'mrow');
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = sel[i];
+        cb.addEventListener('change', () => { sel[i] = cb.checked; refresh(); });
+        row.append(cb, el('span', 'nm', g.name), el('span', 'ct', `${g.files.length}장`));
+        if (exists(g.name)) row.appendChild(el('span', 'tag', '이미 있음'));
+        listEl.appendChild(row);
+      });
+      all.addEventListener('click', () => {
+        const target = !(sel.filter(Boolean).length === list.length);
+        sel.fill(target);
+        listEl.querySelectorAll('input').forEach(c => { c.checked = target; });
+        refresh();
+      });
+      go.addEventListener('click', () => importBatch(list.filter((_, i) => sel[i])));
+      const cancel = el('button', '', '취소'); cancel.type = 'button'; cancel.addEventListener('click', closeModal);
+      const foot = el('div', 'mfoot'); foot.append(cancel, all, go);
+      box.append(listEl, foot);
+      refresh();
+    });
+  }
+
+  dirPicker.addEventListener('change', () => {
+    const imgs = Array.from(dirPicker.files || []).filter(isImage);
+    dirPicker.value = '';
+    if (!imgs.length) { toast('불러올 이미지를 찾지 못했습니다'); return; }
+    if (!imgs.some(f => f.webkitRelativePath)) {     // 폴더 선택이 지원되지 않는 iOS: 일반 사진 선택처럼 처리
+      alert('이 아이폰(iOS 버전)에서는 폴더 선택이 지원되지 않아, 고른 사진 전체를 작품 1개로 불러옵니다.\n(폴더 선택은 iOS 18.4 이상에서 가능합니다.)');
+      importBatch([{ name: nextName(), files: imgs.sort(naturalCompare) }]);
+      return;
+    }
+    const { list, nested } = groupByFolder(imgs);
+    if (!list.length) { toast('불러올 이미지를 찾지 못했습니다'); return; }
+    const dup = list.some(g => works.some(w => w.name === g.name));
+    if (nested || dup) openChecklist(list);          // 상위 폴더를 골랐거나 같은 이름이 있으면 목록에서 확인
+    else importBatch(list);                          // 작품 폴더를 직접 골랐으면 바로 불러오기
+  });
+
+  picker.addEventListener('change', () => {
+    const files = Array.from(picker.files || []).filter(isImage).sort(naturalCompare);
+    picker.value = '';
+    if (!files.length) return;
+    importBatch([{ name: nextName(), files }]);
+  });
+
+  /* ---------- 터치 / 슬라이드 ---------- */
+  $('left').addEventListener('click', next);
+  $('right').addEventListener('click', previous);
+  $('center').addEventListener('click', () => bar.classList.toggle('hidden'));
+
+  let sx = 0, sy = 0, st = 0, swiped = false;
+  const stage = $('stage');
+  stage.addEventListener('touchstart', e => {
+    const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); swiped = false;
+  }, { passive: true });
+  stage.addEventListener('touchend', e => {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - st < 800) {
+      swiped = true;
+      dx > 0 ? next() : previous();
+    }
+  }, { passive: true });
+  stage.addEventListener('click', e => {
+    if (swiped) { e.stopPropagation(); e.preventDefault(); swiped = false; }
+  }, true);
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft') next();
+    if (e.key === 'ArrowRight') previous();
+    if (e.key === 'Escape') closePanels();
+  });
+  // 앱이 백그라운드로 갈 때 진행 상황 즉시 저장
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      clearTimeout(saveTimer);
+      const w = W(); if (w) { store.putWork(w).catch(() => {}); ls.set('mangatap_cur', w.id); }
+    }
+  });
+  window.addEventListener('pagehide', () => { if (currentUrl) URL.revokeObjectURL(currentUrl); });
+
+  /* ---------- 카드끼리 겹친 정도로 판단 (손가락 위치와 무관) ---------- */
+  const MERGE_ON = 0.4, MERGE_KEEP = 0.3, MERGE_DWELL = 400;
+  function overlapRatio(d, r) {            // 상대 카드(r) 면적 중 끌고 있는 카드(d)에 덮인 비율
+    const w = Math.min(d.right, r.right) - Math.max(d.left, r.left);
+    const h = Math.min(d.bottom, r.bottom) - Math.max(d.top, r.top);
+    if (w <= 0 || h <= 0) return 0;
+    return (w * h) / (r.width * r.height);
+  }
+  function classify(d, r, c, hovering) {   // d: 끌고 있는 카드, r: 상대 카드, c: 끌고 있는 카드의 원래 자리 중심
+    const ratio = overlapRatio(d, r);
+    const rx = ((d.left + d.width / 2) - r.left) / r.width;
+    const ry = ((d.top + d.height / 2) - r.top) / r.height;
+    const dx = (r.left + r.width / 2) - c.cx, dy = (r.top + r.height / 2) - c.cy;
+    // 카드 중심이 상대 카드를 지나 반대편까지 갔는지 (순서 바꾸기 신호)
+    const far = Math.abs(dy) > r.height * 0.5 ? (dy > 0 ? ry > 0.65 : ry < 0.35) : (dx > 0 ? rx > 0.65 : rx < 0.35);
+    return { ratio, far, inside: rx > 0 && rx < 1 && ry > 0 && ry < 1, merge: ratio >= (hovering ? MERGE_KEEP : MERGE_ON) && !far };
+  }
+
+  /* ---------- 순서 바꾸기 + 그룹 만들기: 꾹 눌러서 끌기 ---------- */
+  function applyReorder(ids) {
+    const st = sheet.scrollTop;
+    const list = ids.map(id => works.find(w => w.id === id) || groups.find(g => g.id === id)).filter(Boolean);
+    const before = view ? members(view) : topItems();
+    const same = list.length === before.length && list.every((o, i) => o === before[i]);
+    if (!same && list.length === before.length) {
+      list.forEach((o, i) => { o.order = i; });
+      cleanupGroups(); renumber(); resortWorks(); persistAll(); updateButtons();
+    }
+    openWorks(true); sheet.scrollTop = st;
+  }
+
+  workGrid.addEventListener('contextmenu', e => e.preventDefault());
+  workGrid.addEventListener('touchstart', e => {
+    const card = e.target.closest('.card');
+    if (!card || e.target.closest('.mini') || e.touches.length !== 1) return;
+    const draggedId = card.dataset.id;
+    const canMerge = !view && !card.classList.contains('group');   // 그룹 안에 그룹은 만들지 않음
+    const t0 = e.touches[0];
+    const sx = t0.clientX, sy = t0.clientY;
+    let lx = sx, ly = sy, grabDX = 0, grabDY = 0, dragging = false, ticker = null;
+    let hoverEl = null, hoverTimer = null, mergeEl = null, overHead = false;
+    let lockUntil = 0, lockTimer = null;   // 자리가 바뀐 직후, 다른 카드들이 움직이는 동안은 다시 판단하지 않음 (떨림 방지)
+
+    function clearHover() {
+      clearTimeout(hoverTimer); hoverTimer = null; hoverEl = null;
+      if (mergeEl) { mergeEl.classList.remove('merge'); mergeEl = null; }
+    }
+    function layoutCenter() {
+      card.style.transform = '';
+      const r = card.getBoundingClientRect();
+      return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+    }
+    function place() {
+      const c = layoutCenter();
+      card.style.transform = `translate(${lx - grabDX - c.cx}px, ${ly - grabDY - c.cy}px) scale(1.06)`;
+    }
+    function doReorder(cards, from, i) {
+      const before = new Map(cards.map(c => [c, c.getBoundingClientRect()]));
+      if (i < from) workGrid.insertBefore(card, cards[i]);
+      else workGrid.insertBefore(card, cards[i].nextSibling);
+      cards.forEach(c => {
+        if (c === card) return;
+        const b = before.get(c), a = c.getBoundingClientRect();
+        const dx = b.left - a.left, dy = b.top - a.top;
+        if (!dx && !dy) return;
+        c.style.transition = 'none';
+        c.style.transform = `translate(${dx}px, ${dy}px)`;
+        void c.offsetWidth;
+        c.style.transition = 'transform .18s ease';
+        c.style.transform = '';
+      });
+      lockUntil = Date.now() + 200;
+      clearTimeout(lockTimer);
+      lockTimer = setTimeout(() => { if (dragging) step(); }, 210);
+    }
+    function decide() {
+      if (Date.now() < lockUntil) return false;
+      const d = card.getBoundingClientRect();            // 끌고 있는 카드 자체의 현재 모습 기준
+      const cards = Array.from(workGrid.querySelectorAll('.card'));
+      const from = cards.indexOf(card);
+      let best = -1, bestRatio = 0;
+      for (let i = 0; i < cards.length; i++) {
+        if (i === from) continue;
+        const ratio = overlapRatio(d, cards[i].getBoundingClientRect());
+        if (ratio > bestRatio) { bestRatio = ratio; best = i; }
+      }
+      if (best < 0 || bestRatio < 0.12) { clearHover(); return false; }
+      const sib = cards[best];
+      const r = sib.getBoundingClientRect();
+      const c = layoutCenter();                          // 끌고 있는 카드의 원래 자리 (이 뒤에 place()로 복구)
+      const k = classify(d, r, c, hoverEl === sib);
+      if (!canMerge) {                                   // 그룹 안 / 그룹 카드 끌기: 카드 중심이 들어오면 바로 순서 변경
+        if (k.inside) { doReorder(cards, from, best); return true; }
+        return false;
+      }
+      if (k.merge) {                                     // 충분히 겹쳐서 잠깐 머물면 묶기 후보 (iOS 폴더처럼)
+        if (hoverEl !== sib) {
+          clearHover(); hoverEl = sib;
+          hoverTimer = setTimeout(() => { if (hoverEl === sib) { mergeEl = sib; sib.classList.add('merge'); } }, MERGE_DWELL);
+        }
+        return false;
+      }
+      clearHover();
+      if (k.far) { doReorder(cards, from, best); return true; }
+      return false;
+    }
+    function updateHead() {
+      if (!view) return false;
+      const h = gHead.getBoundingClientRect(), d = card.getBoundingClientRect();
+      const on = d.top <= h.bottom - 22 && d.bottom > h.top && d.right > h.left && d.left < h.right;
+      gHead.classList.toggle('drop', on);
+      return on;
+    }
+    function step() {
+      place();
+      overHead = updateHead();          // 그룹 안에서 카드가 위쪽 바에 닿으면 "그룹에서 빼기"
+      if (overHead) clearHover(); else decide();
+      place();                          // decide()는 원래 자리를 재느라 변형을 지우므로, 항상 마지막에 다시 적용
+    }
+    function tick() {
+      if (overHead) return;
+      const sr = sheet.getBoundingClientRect();
+      const topEdge = sr.top + (view ? 60 : 0) + 40;
+      let d = 0;
+      if (ly < topEdge) d = -10; else if (ly > sr.bottom - 48) d = 10;
+      if (d) { sheet.scrollTop += d; step(); }
+    }
+    function startDrag() {
+      dragging = true;
+      card.classList.add('dragging'); workGrid.classList.add('sorting');
+      const c = layoutCenter();
+      grabDX = lx - c.cx; grabDY = ly - c.cy;
+      place();
+      ticker = setInterval(tick, 16);
+    }
+    function cleanup() {
+      clearTimeout(timer); clearInterval(ticker); clearTimeout(lockTimer); dragging = false;
+      clearHover(); gHead.classList.remove('drop');
+      card.removeEventListener('touchmove', onMove);
+      card.removeEventListener('touchend', onEnd);
+      card.removeEventListener('touchcancel', onEnd);
+    }
+    function onMove(ev) {
+      const tt = ev.touches[0]; lx = tt.clientX; ly = tt.clientY;
+      if (!dragging) {
+        if (Math.abs(lx - sx) > 10 || Math.abs(ly - sy) > 10) cleanup();   // 스크롤로 판단
+        return;
+      }
+      ev.preventDefault();
+      step();
+    }
+    function onEnd(ev) {
+      const was = dragging, target = mergeEl, head = overHead;
+      cleanup();
+      if (!was) return;
+      if (ev.cancelable) ev.preventDefault();
+      sortedAt = Date.now();
+      card.classList.remove('dragging'); card.style.transform = '';
+      workGrid.classList.remove('sorting');
+      const st = sheet.scrollTop;
+      if (ev.type === 'touchcancel') { openWorks(true); sheet.scrollTop = st; return; }
+      if (head) {                                   // 그룹에서 빼기
+        const w = works.find(x => x.id === draggedId);
+        const g = groups.find(x => x.id === view);
+        if (w && g) { w.groupId = null; w.order = g.order + 0.5; restructure(); }
+        openWorks(true); sheet.scrollTop = st; return;
+      }
+      if (target) {                                 // 그룹 만들기 / 그룹에 넣기
+        mergeInto(draggedId, target.dataset.id);
+        openWorks(true); sheet.scrollTop = st; return;
+      }
+      applyReorder(Array.from(workGrid.querySelectorAll('.card')).map(c => c.dataset.id));
+    }
+    const timer = setTimeout(startDrag, 350);
+    card.addEventListener('touchmove', onMove, { passive: false });
+    card.addEventListener('touchend', onEnd);
+    card.addEventListener('touchcancel', onEnd);
+  }, { passive: true });
+
+  /* ---------- 시작: 저장된 작품 복원 ---------- */
+  (async () => {
+    setBarHeightVar();
+    db = await openDB();
+    try {
+      const all = await store.listWorks();
+      groups = all.filter(o => o.type === 'group');
+      works = all.filter(o => o.type !== 'group');
+      works.forEach(w => { if (w.groupId && !groups.some(g => g.id === w.groupId)) w.groupId = null; });
+      resortWorks();
+    } catch (e) { works = []; groups = []; }
+    if (works.length) {
+      const last = ls.get('mangatap_cur');
+      const k = works.findIndex(w => w.id === last);
+      cur = k >= 0 ? k : works.length - 1;
+    }
+    showPage();
+  })();
+})();
+</script>
+<script>
+  // 오프라인에서도 열리도록 서비스 워커 등록
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
