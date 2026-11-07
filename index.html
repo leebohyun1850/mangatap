@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -44,7 +44,7 @@
     display: flex; align-items: center; justify-content: center;
     background: #000; overflow: hidden;
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    touch-action: pan-y; overscroll-behavior-x: none;
+    touch-action: none; overscroll-behavior: none;
   }
   #page {
     display: block; max-width: 100%; max-height: 100%;
@@ -54,7 +54,7 @@
   .zone {
     position: absolute; top: 0; bottom: 0;
     border: 0; background: transparent; padding: 0; margin: 0;
-    touch-action: manipulation;
+    touch-action: none;
   }
   #left   { left: 0;   width: 40%; }
   #center { left: 40%; width: 20%; }
@@ -66,6 +66,29 @@
     padding: 28px; text-align: center; color: #aaa; line-height: 1.8; font-size: 14px;
   }
   #empty[hidden], #page[hidden] { display: none; }
+
+  /* 확대/축소 */
+  #page { will-change: transform; transform-origin: 50% 50%; }
+  #page.anim { transition: transform .22s ease-out; }
+  #zoomPill {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 6;
+    padding: 7px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.18);
+    background: rgba(25,25,25,.82); color: #fff; font-size: 13px; font-weight: 600;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    opacity: 0; pointer-events: none; transition: opacity .2s, background .2s;
+  }
+  #zoomPill.show { opacity: 1; pointer-events: auto; }
+  #zoomPill.idle { opacity: .6; }
+  #zoomPill.orig {
+    background: #1faa59; border-color: #a6f2c6; box-shadow: 0 0 0 3px rgba(31,170,89,.35);
+    animation: origPop .35s ease-out;
+  }
+  @keyframes origPop {
+    0% { transform: translateX(-50%) scale(.9); }
+    60% { transform: translateX(-50%) scale(1.12); }
+    100% { transform: translateX(-50%) scale(1); }
+  }
 
   /* 패널 공통 */
   .panel {
@@ -192,6 +215,7 @@
   <button class="zone" id="left"   aria-label="다음 페이지"></button>
   <button class="zone" id="center" aria-label="상단 바 숨김/표시"></button>
   <button class="zone" id="right"  aria-label="이전 페이지"></button>
+  <div id="zoomPill"></div>
 </main>
 
 <div class="panel" id="pagePanel">
@@ -300,6 +324,7 @@
   let saveTimer = null;
   let coverUrls = [];
   let sortedAt = 0;   // 순서 바꾸기 직후 탭이 작품 열기로 오인되지 않도록
+  let zs = 1, tx = 0, ty = 0;   // 확대 배율(화면 맞춤=1), 이동량
   const W = () => works[cur];
 
   const naturalCompare = (a, b) =>
@@ -333,6 +358,7 @@
 
   async function showPage() {
     const t = ++showToken;
+    resetZoom(false);
     const w = W();
     if (!w) {
       img.hidden = true; empty.hidden = false;
@@ -809,22 +835,142 @@
   $('right').addEventListener('click', previous);
   $('center').addEventListener('click', () => bar.classList.toggle('hidden'));
 
-  let sx = 0, sy = 0, st = 0, swiped = false;
-  const stage = $('stage');
+  /* ---------- 확대/축소 (두 손가락) + 원본 100% 자동 맞춤 ---------- */
+  const stage = $('stage'), pill = $('zoomPill');
+  const SNAP_LO = 0.97, SNAP_HI = 1.03, MAX_PCT = 3;   // 원본의 97~103%는 100%로 붙이고, 최대 300%까지 확대
+  let curFit = 1, pillTimer = null, wasOrig = false;
+
+  function metrics() {                   // 화면에 맞춘 상태의 이미지 크기와 중심 (확대 효과는 제외)
+    const sr = stage.getBoundingClientRect();
+    const padB = parseFloat(getComputedStyle(stage).paddingBottom) || 0;
+    const W = sr.width, H = sr.height - padB;
+    const iw = img.offsetWidth, ih = img.offsetHeight, nw = img.naturalWidth || iw;
+    const fit = nw ? iw / nw : 1;        // 맞춤 상태에서 원본 대비 비율 (1 = 원본 크기)
+    curFit = fit;
+    return { L: { x: sr.left + W / 2, y: sr.top + H / 2 }, W, H, iw, ih, fit };
+  }
+  function clampT(m, z, x, y) {          // 이미지가 화면 밖으로 너무 벗어나지 않게
+    const mx = Math.max(0, (m.iw * z - m.W) / 2), my = Math.max(0, (m.ih * z - m.H) / 2);
+    return { x: Math.min(mx, Math.max(-mx, x)), y: Math.min(my, Math.max(-my, y)) };
+  }
+  function pinchCalc(p0, dist, mid) {    // 두 손가락 사이 거리 변화 → 새 배율/위치
+    const m = p0.m;
+    const zsMax = Math.max(MAX_PCT / m.fit, 1);
+    const raw = Math.min(zsMax, Math.max(1, p0.zs * dist / p0.dist));
+    const pct = raw * m.fit;
+    const snapped = pct >= SNAP_LO && pct <= SNAP_HI;      // 원본 100% 근처면 정확히 100%로
+    const z = snapped ? 1 / m.fit : raw;
+    const c = clampT(m, z, mid.x - m.L.x - p0.px * z, mid.y - m.L.y - p0.py * z);
+    return { z, x: c.x, y: c.y, snapped };
+  }
+  function applyZoom() {
+    img.style.transform = (zs === 1 && !tx && !ty) ? '' : `translate(${tx}px, ${ty}px) scale(${zs})`;
+  }
+  function resetZoom(animate) {
+    zs = 1; tx = 0; ty = 0; wasOrig = false;
+    clearTimeout(pillTimer);
+    if (animate) { img.classList.add('anim'); setTimeout(() => img.classList.remove('anim'), 260); }
+    img.style.transform = '';
+    pill.classList.remove('show', 'idle', 'orig');
+  }
+  function showPill(isOrig) {
+    pill.textContent = isOrig ? '원본 크기 100%' : `${Math.round(curFit * zs * 100)}%`;
+    if (isOrig && !wasOrig) { pill.classList.remove('orig'); void pill.offsetWidth; }   // 100%에 닿을 때마다 강조 효과 다시 재생
+    pill.classList.toggle('orig', isOrig);
+    wasOrig = isOrig;
+    pill.classList.add('show'); pill.classList.remove('idle');
+    clearTimeout(pillTimer);
+    pillTimer = setTimeout(settlePill, isOrig ? 1800 : 1200);
+  }
+  function settlePill() {
+    wasOrig = false; pill.classList.remove('orig');
+    if (zs > 1.02) { pill.textContent = `${Math.round(curFit * zs * 100)}%`; pill.classList.add('idle'); }   // 확대 중에는 작게 남겨 둠 (누르면 맞춤/100% 전환)
+    else pill.classList.remove('show', 'idle');
+  }
+  pill.addEventListener('click', e => {  // 배율 표시를 누르면: 맞춤 → 원본 100% → 맞춤
+    e.stopPropagation();
+    const m = metrics();
+    const at100 = Math.abs(m.fit * zs - 1) < 0.01;
+    img.classList.add('anim'); setTimeout(() => img.classList.remove('anim'), 260);
+    if (zs <= 1.02 && m.fit < 0.995) { zs = 1 / m.fit; tx = 0; ty = 0; applyZoom(); showPill(true); }
+    else { zs = 1; tx = 0; ty = 0; applyZoom(); if (at100 || zs > 1) settlePill(); showPill(false); setTimeout(settlePill, 900); }
+  });
+  ['touchstart', 'touchmove', 'touchend'].forEach(t => pill.addEventListener(t, e => e.stopPropagation(), { passive: true }));
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault()));
+
+  let sx = 0, sy = 0, st = 0, swiped = false, suppressUntil = 0;
+  let mode = null, p0 = null, snapped = false;      // mode: 'swipe' | 'pan' | 'pinch'
+
+  function startPinch(e) {
+    if (img.hidden || !img.naturalWidth) return;
+    const a = e.touches[0], b = e.touches[1], m = metrics();
+    const mid = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+    p0 = { m, zs, dist: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)),
+           px: (mid.x - m.L.x - tx) / zs, py: (mid.y - m.L.y - ty) / zs };
+    mode = 'pinch'; swiped = false; snapped = false;
+    img.classList.remove('anim');
+  }
   stage.addEventListener('touchstart', e => {
+    if (e.touches.length >= 2) { startPinch(e); return; }
     const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); swiped = false;
+    if (zs > 1.001) { mode = 'pan'; p0 = { x: sx, y: sy, tx, ty, moved: false }; }
+    else mode = 'swipe';
   }, { passive: true });
-  stage.addEventListener('touchend', e => {
-    const t = e.changedTouches[0];
-    const dx = t.clientX - sx, dy = t.clientY - sy;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - st < 800) {
-      swiped = true;
-      dx > 0 ? next() : previous();
+
+  stage.addEventListener('touchmove', e => {
+    if (mode === 'pinch' && e.touches.length >= 2) {
+      e.preventDefault();
+      const a = e.touches[0], b = e.touches[1];
+      const r = pinchCalc(p0, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+                          { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+      zs = r.z; tx = r.x; ty = r.y; snapped = r.snapped;
+      applyZoom(); showPill(snapped);
+      return;
     }
-  }, { passive: true });
+    if (mode === 'pan' && e.touches.length === 1) {
+      e.preventDefault();
+      const t = e.touches[0];
+      const dx = t.clientX - p0.x, dy = t.clientY - p0.y;
+      if (Math.abs(dx) > 6 || Math.abs(dy) > 6) p0.moved = true;
+      const c = clampT(metrics(), zs, p0.tx + dx, p0.ty + dy);
+      tx = c.x; ty = c.y; applyZoom();
+    }
+  }, { passive: false });
+
+  function endTouch(e) {
+    if (mode === 'pinch') {
+      if (e.touches.length >= 2) return;
+      suppressUntil = Date.now() + 400;               // 핀치 직후 손을 뗄 때 페이지가 넘어가지 않게
+      if (zs < 1.02) { zs = 1; tx = 0; ty = 0; applyZoom(); }
+      if (zs > 1.001 || snapped) showPill(snapped); else settlePill();
+      if (e.touches.length === 1 && zs > 1.001) {
+        const t = e.touches[0]; mode = 'pan'; p0 = { x: t.clientX, y: t.clientY, tx, ty, moved: true };
+      } else mode = null;
+      snapped = false;
+      return;
+    }
+    if (mode === 'pan') {
+      if (e.touches.length === 0) { if (p0 && p0.moved) suppressUntil = Date.now() + 250; mode = null; }
+      return;
+    }
+    if (mode === 'swipe' && e.touches.length === 0) {
+      mode = null;
+      if (e.type !== 'touchend') return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - st < 800) {
+        swiped = true;
+        dx > 0 ? next() : previous();
+      }
+    }
+  }
+  stage.addEventListener('touchend', endTouch, { passive: true });
+  stage.addEventListener('touchcancel', endTouch, { passive: true });
   stage.addEventListener('click', e => {
-    if (swiped) { e.stopPropagation(); e.preventDefault(); swiped = false; }
+    if (swiped || Date.now() < suppressUntil) { e.stopPropagation(); e.preventDefault(); swiped = false; }
   }, true);
+  window.addEventListener('resize', () => { if (zs > 1) { const c = clampT(metrics(), zs, tx, ty); tx = c.x; ty = c.y; applyZoom(); } });
+  if (window.ResizeObserver) new ResizeObserver(() => { if (zs > 1) { const c = clampT(metrics(), zs, tx, ty); tx = c.x; ty = c.y; applyZoom(); } }).observe(stage);
 
   document.addEventListener('keydown', e => {
     if (e.key === 'ArrowLeft') next();
