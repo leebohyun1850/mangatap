@@ -837,17 +837,15 @@
 
   /* ---------- 확대/축소 (두 손가락) + 원본 100% 자동 맞춤 ---------- */
   const stage = $('stage'), pill = $('zoomPill');
-  const SNAP_LO = 0.97, SNAP_HI = 1.03, MAX_PCT = 3;   // 원본의 97~103%는 100%로 붙이고, 최대 300%까지 확대
-  let curFit = 1, pillTimer = null, wasOrig = false;
+  const SNAP_HI = 1.03, MAX_ZOOM = 4;   // 처음 불러온 모습 = 100%. 100~103%는 100%로 붙이고, 최대 400%까지 확대 (100%보다 작게는 축소 불가)
+  let pillTimer = null, wasOrig = false, origNow = false;
 
   function metrics() {                   // 화면에 맞춘 상태의 이미지 크기와 중심 (확대 효과는 제외)
     const sr = stage.getBoundingClientRect();
     const padB = parseFloat(getComputedStyle(stage).paddingBottom) || 0;
     const W = sr.width, H = sr.height - padB;
-    const iw = img.offsetWidth, ih = img.offsetHeight, nw = img.naturalWidth || iw;
-    const fit = nw ? iw / nw : 1;        // 맞춤 상태에서 원본 대비 비율 (1 = 원본 크기)
-    curFit = fit;
-    return { L: { x: sr.left + W / 2, y: sr.top + H / 2 }, W, H, iw, ih, fit };
+    const iw = img.offsetWidth, ih = img.offsetHeight;
+    return { L: { x: sr.left + W / 2, y: sr.top + H / 2 }, W, H, iw, ih };
   }
   function clampT(m, z, x, y) {          // 이미지가 화면 밖으로 너무 벗어나지 않게
     const mx = Math.max(0, (m.iw * z - m.W) / 2), my = Math.max(0, (m.ih * z - m.H) / 2);
@@ -855,13 +853,11 @@
   }
   function pinchCalc(p0, dist, mid) {    // 두 손가락 사이 거리 변화 → 새 배율/위치
     const m = p0.m;
-    const zsMax = Math.max(MAX_PCT / m.fit, 1);
-    const raw = Math.min(zsMax, Math.max(1, p0.zs * dist / p0.dist));
-    const pct = raw * m.fit;
-    const snapped = pct >= SNAP_LO && pct <= SNAP_HI;      // 원본 100% 근처면 정확히 100%로
-    const z = snapped ? 1 / m.fit : raw;
+    const raw = Math.min(MAX_ZOOM, Math.max(1, p0.zs * dist / p0.dist));
+    const snapped = raw <= SNAP_HI;                        // 처음 모습(100%) 근처면 정확히 100%로
+    const z = snapped ? 1 : raw;
     const c = clampT(m, z, mid.x - m.L.x - p0.px * z, mid.y - m.L.y - p0.py * z);
-    return { z, x: c.x, y: c.y, snapped };
+    return { z, x: c.x, y: c.y, snapped, raw };
   }
   function applyZoom() {
     img.style.transform = (zs === 1 && !tx && !ty) ? '' : `translate(${tx}px, ${ty}px) scale(${zs})`;
@@ -874,7 +870,7 @@
     pill.classList.remove('show', 'idle', 'orig');
   }
   function showPill(isOrig) {
-    pill.textContent = isOrig ? '원본 크기 100%' : `${Math.round(curFit * zs * 100)}%`;
+    pill.textContent = isOrig ? '100% 원본 비율' : `${Math.round(zs * 100)}%`;
     if (isOrig && !wasOrig) { pill.classList.remove('orig'); void pill.offsetWidth; }   // 100%에 닿을 때마다 강조 효과 다시 재생
     pill.classList.toggle('orig', isOrig);
     wasOrig = isOrig;
@@ -884,16 +880,13 @@
   }
   function settlePill() {
     wasOrig = false; pill.classList.remove('orig');
-    if (zs > 1.02) { pill.textContent = `${Math.round(curFit * zs * 100)}%`; pill.classList.add('idle'); }   // 확대 중에는 작게 남겨 둠 (누르면 맞춤/100% 전환)
+    if (zs > 1.02) { pill.textContent = `${Math.round(zs * 100)}%`; pill.classList.add('idle'); }   // 확대 중에는 작게 남겨 둠 (누르면 100%로 복귀)
     else pill.classList.remove('show', 'idle');
   }
-  pill.addEventListener('click', e => {  // 배율 표시를 누르면: 맞춤 → 원본 100% → 맞춤
+  pill.addEventListener('click', e => {  // 배율 표시를 누르면 100%(처음 모습)로 복귀
     e.stopPropagation();
-    const m = metrics();
-    const at100 = Math.abs(m.fit * zs - 1) < 0.01;
     img.classList.add('anim'); setTimeout(() => img.classList.remove('anim'), 260);
-    if (zs <= 1.02 && m.fit < 0.995) { zs = 1 / m.fit; tx = 0; ty = 0; applyZoom(); showPill(true); }
-    else { zs = 1; tx = 0; ty = 0; applyZoom(); if (at100 || zs > 1) settlePill(); showPill(false); setTimeout(settlePill, 900); }
+    zs = 1; tx = 0; ty = 0; applyZoom(); showPill(true);
   });
   ['touchstart', 'touchmove', 'touchend'].forEach(t => pill.addEventListener(t, e => e.stopPropagation(), { passive: true }));
   ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault()));
@@ -907,7 +900,8 @@
     const mid = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
     p0 = { m, zs, dist: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)),
            px: (mid.x - m.L.x - tx) / zs, py: (mid.y - m.L.y - ty) / zs };
-    mode = 'pinch'; swiped = false; snapped = false;
+    p0.left = zs > SNAP_HI;                            // 이번 핀치에서 100%보다 커진 적이 있어야 '100%로 돌아왔다'고 강조
+    mode = 'pinch'; swiped = false; snapped = false; origNow = false;
     img.classList.remove('anim');
   }
   stage.addEventListener('touchstart', e => {
@@ -923,8 +917,10 @@
       const a = e.touches[0], b = e.touches[1];
       const r = pinchCalc(p0, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
                           { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+      if (r.raw > SNAP_HI) p0.left = true;
       zs = r.z; tx = r.x; ty = r.y; snapped = r.snapped;
-      applyZoom(); showPill(snapped);
+      origNow = snapped && p0.left;                    // 확대했다가 100%로 돌아왔을 때만 강조
+      applyZoom(); showPill(origNow);
       return;
     }
     if (mode === 'pan' && e.touches.length === 1) {
@@ -942,11 +938,11 @@
       if (e.touches.length >= 2) return;
       suppressUntil = Date.now() + 400;               // 핀치 직후 손을 뗄 때 페이지가 넘어가지 않게
       if (zs < 1.02) { zs = 1; tx = 0; ty = 0; applyZoom(); }
-      if (zs > 1.001 || snapped) showPill(snapped); else settlePill();
+      if (zs > 1.001 || origNow) showPill(origNow); else settlePill();
       if (e.touches.length === 1 && zs > 1.001) {
         const t = e.touches[0]; mode = 'pan'; p0 = { x: t.clientX, y: t.clientY, tx, ty, moved: true };
       } else mode = null;
-      snapped = false;
+      snapped = false; origNow = false;
       return;
     }
     if (mode === 'pan') {
