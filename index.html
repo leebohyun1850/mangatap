@@ -318,6 +318,7 @@
   let works = [];          // { id, name, index, count, order, cover, groupId }
   let groups = [];         // { id, type:'group', name, order }
   let view = null;         // 지금 열어 둔 그룹 id (null이면 최상위 목록)
+  let topListScrollTop = 0; // 그룹에 들어가기 직전 최상위 목록 위치
   let cur = -1;
   let currentUrl = null;
   let showToken = 0;
@@ -552,6 +553,7 @@
       if (Date.now() - sortedAt < 500) return;
       const r = card.getBoundingClientRect(), sr = sheet.getBoundingClientRect();
       const ox = Math.round(r.left + r.width / 2 - sr.left), oy = Math.round(r.top + r.height / 2 - sr.top);
+      if (view === null) topListScrollTop = sheet.scrollTop;
       openWorks(false, g.id);
       sheet.style.transformOrigin = `${ox}px ${oy}px`;
       sheet.classList.remove('opening'); void sheet.offsetWidth; sheet.classList.add('opening');
@@ -597,7 +599,10 @@
       } else { sheet.scrollTop = 0; }
     }
   }
-  $('gBack').addEventListener('click', () => openWorks(false, null));
+  $('gBack').addEventListener('click', () => {
+    openWorks(true, null);
+    sheet.scrollTop = topListScrollTop;
+  });
   $('gRen').addEventListener('click', () => {
     const g = groups.find(x => x.id === view); if (!g) return;
     const n = prompt('그룹 이름', g.name);

@@ -1,4 +1,4 @@
-const CACHE = 'mangatap-v6';
+const CACHE = 'mangatap-v7';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
